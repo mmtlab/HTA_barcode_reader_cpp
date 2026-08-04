@@ -139,7 +139,22 @@ DecodeResult decode_with_preprocessing(const cv::Mat& roi_bgr,
     //  7. Versioni upscalate (2× e 3×) di tutti i candidati base.
     //     Upscaled versions (2× and 3×) of all base candidates.
     //     Utili per barcode piccoli o sfocati. / Useful for small or blurry barcodes.
+    //
+    //  GUARDIA MEMORIA: se l'immagine base supera la soglia di pixel, lo
+    //  scaling è saltato per evitare std::bad_alloc su frame ad alta risoluzione.
+    //  MEMORY GUARD: if the base image exceeds the pixel threshold, scaling is
+    //  skipped to avoid std::bad_alloc on high-resolution frames.
     // -------------------------------------------------------------------------
+
+    // Soglia: 4 Mpixel. Un'immagine 2× di 2 Mpixel = 8 Mpixel ≈ 24 MB (BGR),
+    // considerato accettabile. Un'immagine 3× di 2 Mpixel = 18 Mpixel ≈ 54 MB,
+    // potenzialmente problematico su sistemi con poca RAM.
+    // Threshold: 4 Mpixels. A 2× of 2 Mpixel = 8 Mpixel ≈ 24 MB (BGR),
+    // considered acceptable. A 3× of 2 Mpixel = 18 Mpixel ≈ 54 MB, potentially
+    // problematic on low-RAM systems.
+    constexpr int kMaxPixelsForUpscale2x = 4 * 1024 * 1024;  // 4 Mpixel
+    constexpr int kMaxPixelsForUpscale3x = 2 * 1024 * 1024;  // 2 Mpixel
+
     struct NamedImg { const std::string& n; const cv::Mat& m; };
     // Riferimenti ai candidati base già calcolati (nessuna copia).
     // References to already-computed base candidates (no copies).
@@ -152,11 +167,19 @@ DecodeResult decode_with_preprocessing(const cv::Mat& roi_bgr,
     };
 
     for (const auto& b : bases) {
-        cv::Mat up2, up3;
-        cv::resize(b.m, up2, cv::Size(), 2.0, 2.0, cv::INTER_CUBIC);
-        if (try_candidate(b.n + "_x2", up2)) return result;
-        cv::resize(b.m, up3, cv::Size(), 3.0, 3.0, cv::INTER_CUBIC);
-        if (try_candidate(b.n + "_x3", up3)) return result;
+        const int base_pixels = b.m.rows * b.m.cols;
+
+        if (base_pixels <= kMaxPixelsForUpscale2x) {
+            cv::Mat up2;
+            cv::resize(b.m, up2, cv::Size(), 2.0, 2.0, cv::INTER_CUBIC);
+            if (try_candidate(b.n + "_x2", up2)) return result;
+        }
+
+        if (base_pixels <= kMaxPixelsForUpscale3x) {
+            cv::Mat up3;
+            cv::resize(b.m, up3, cv::Size(), 3.0, 3.0, cv::INTER_CUBIC);
+            if (try_candidate(b.n + "_x3", up3)) return result;
+        }
     }
 
     return result;  // nessun barcode trovato / no barcode found
