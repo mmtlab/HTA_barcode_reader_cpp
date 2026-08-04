@@ -1,0 +1,19 @@
+# Cartelle da escludere
+old/
+build/
+build_new/
+.cache/
+.vscode/
+.idea/
+
+# File compilati e generati
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.dll
+
+# OS generated files
+.DS_Store
+Thumbs.db
