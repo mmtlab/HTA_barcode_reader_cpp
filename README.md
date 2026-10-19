@@ -1,19 +1,19 @@
-# Barcode Reader (C++)
+# Barcode Reader (C++) — webcam branch
 
 🇮🇹 Versione italiana: [README_ITA.md](README_ITA.md)
 
+> This is the `webcam` branch: the program only reads barcodes **live from a webcam**.
+> Single images, folders (batch), CSV output and libcamera are available on the `main` branch.
+
 ## 1. What the program does
 
-`barcode_reader` reads 1D barcodes and QR codes with [ZBar](https://github.com/mchehab/zbar) and [OpenCV](https://opencv.org/). It works on:
+`barcode_reader` opens a webcam, shows the video and reads 1D barcodes and QR codes in real time with [ZBar](https://github.com/mchehab/zbar) and [OpenCV](https://opencv.org/). Each new code read is printed once on the console:
 
-| Mode | Option | Input |
-|------|--------|-------|
-| Single image | `--image <file>` | one image file |
-| Batch | `--folder <dir>` | every image in a folder (`.jpg .jpeg .png .bmp .tif .tiff .webp`) |
-| Webcam | `--webcam` | any camera that OpenCV can open |
-| libcamera | `--libcamera` | Raspberry Pi / Arducam camera (GStreamer, optional) |
+```
+OK | EAN13: 5901234123457 | quality=299 | pipeline=gray
+```
 
-Only the region of interest (ROI) is analysed. The ROI is given in pixels (`--roi X Y W H`), drawn with the mouse (`--select-roi`), or is the whole image.
+Only the region of interest (ROI) is analysed. The ROI is given in pixels (`--roi X Y W H`), drawn with the mouse on the first frame (`--select-roi`), or is the whole frame.
 
 If ZBar cannot read the plain grayscale ROI, the program tries progressively stronger image processing steps and stops at the first one that works:
 
@@ -27,28 +27,32 @@ If ZBar cannot read the plain grayscale ROI, the program tries progressively str
 | 6 | `morph_open_horiz` | horizontal morphological opening of step 5 |
 | 7–16 | `<step>_x2`, `<step>_x3` | steps 1–5 enlarged 2× and 3× (skipped for large ROIs) |
 
-The parameters of these steps are in [config/barcode_config.hpp](config/barcode_config.hpp).
+To keep the frame rate high, not every frame is fully analysed:
+- one frame every `--process-every` is decoded;
+- a normal decode tries only the first `--quick-candidates` steps;
+- every `--full-search-every` decodes, all 16 steps are tried.
+
+The parameters of the steps are in [config/barcode_config.hpp](config/barcode_config.hpp).
 
 ## 2. Project layout
 
 ```
 HTA_barcode_reader_cpp/
 ├── CMakeLists.txt          build script
-├── main.cpp                entry point: reads the options, starts the mode
+├── main.cpp                entry point: reads the options, starts the webcam loop
 ├── config/
-│   └── barcode_config.hpp  tunable constants (pipeline, display, file types)
+│   └── barcode_config.hpp  tunable constants (pipeline, display)
 ├── include/                headers (one per source file)
 │   ├── barcode_types.hpp   shared structs and command-line defaults
 │   ├── cli_args.hpp
 │   ├── decoder.hpp
 │   ├── display.hpp
-│   └── modes.hpp
+│   └── webcam_mode.hpp
 └── src/
     ├── cli_args.cpp        command-line parsing and checks
     ├── decoder.cpp         ZBar wrapper + preprocessing pipeline
-    ├── display.cpp         drawing, debug grid, windows, mouse ROI selection
-    ├── image_modes.cpp     --image and --folder (sequential or parallel)
-    └── camera_modes.cpp    --webcam, --libcamera (one shared loop)
+    ├── display.cpp         drawing, windows, mouse ROI selection
+    └── webcam_mode.cpp     live loop: grab, decode, draw, show
 ```
 
 ## 3. Requirements
@@ -57,11 +61,11 @@ HTA_barcode_reader_cpp/
 |-----------|---------|-------|
 | C++ compiler | C++17 | GCC ≥ 9, Clang ≥ 9 or Visual Studio 2019/2022 |
 | CMake | ≥ 3.16 | |
-| OpenCV | 4.x | modules `core imgproc imgcodecs highgui videoio` |
+| OpenCV | 4.x | modules `core imgproc highgui videoio` |
 | ZBar | 0.23 | barcode decoder |
-| GStreamer + libcamera | optional | only for `--libcamera`; OpenCV must be built with GStreamer |
+| Webcam | | any camera that OpenCV can open |
 
-Tested on Ubuntu 26.04 with GCC 15.2, CMake 4.4, OpenCV 4.10 and ZBar 0.23.93. The Windows instructions below have not been tested by the authors of this README.
+Built on Ubuntu 26.04 with GCC 15.2, CMake 4.4, OpenCV 4.10 and ZBar 0.23.93. The Windows instructions below have not been tested by the authors of this README.
 
 ## 4. Linux
 
@@ -78,11 +82,6 @@ Fedora:
 sudo dnf install -y gcc-c++ cmake pkgconf-pkg-config opencv-devel zbar-devel
 ```
 
-Optional, for `--libcamera` on Raspberry Pi:
-```bash
-sudo apt install -y libcamera-dev gstreamer1.0-libcamera libgstreamer1.0-dev
-```
-
 ### 4.2 Build
 
 From the project folder:
@@ -96,7 +95,6 @@ Build options (add them to the first command):
 
 | Option | Effect |
 |--------|--------|
-| `-DUSE_LIBCAMERA=ON` | libcamera support |
 | `-DNATIVE_CPU=OFF` | portable binary (no `-march=native`); use it if the program will run on another computer |
 | `-DCMAKE_BUILD_TYPE=Debug` | debug build |
 
@@ -104,9 +102,9 @@ Build options (add them to the first command):
 
 ```bash
 ./build/barcode_reader --help
-./build/barcode_reader --image photo.jpg --select-roi
-./build/barcode_reader --folder images --roi 1617 1402 830 459 --no-show --threads 8 --output results.csv
-./build/barcode_reader --webcam --select-roi
+./build/barcode_reader                      # default webcam, whole frame
+./build/barcode_reader --select-roi         # draw the ROI with the mouse
+./build/barcode_reader --camera-index 1 --roi 400 300 800 400
 ```
 
 ## 5. Windows
@@ -135,60 +133,33 @@ The program is `build\Release\barcode_reader.exe`. vcpkg copies the needed DLLs 
 
 ```powershell
 .\build\Release\barcode_reader.exe --help
-.\build\Release\barcode_reader.exe --image photo.jpg --select-roi
-.\build\Release\barcode_reader.exe --folder images --roi 1617 1402 830 459 --no-show --threads 8 --output results.csv
-.\build\Release\barcode_reader.exe --webcam --select-roi
+.\build\Release\barcode_reader.exe
+.\build\Release\barcode_reader.exe --select-roi
+.\build\Release\barcode_reader.exe --camera-index 1 --roi 400 300 800 400
 ```
 
 ## 6. Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--image <file>` | | single image; needs `--roi` or `--select-roi` |
-| `--folder <dir>` | | all images in a folder |
-| `--webcam` / `--libcamera` | | live camera modes |
-| `--roi X Y W H` | whole image | ROI in pixels (top-left corner, width, height) |
-| `--select-roi` | | draw the ROI with the mouse; in batch mode on the first image, then reused |
-| `--output <file.csv>` | | write batch results to CSV |
-| `--save-overlay <dir>` | | save each image with ROI and result drawn on it |
-| `--save-debug <dir>` | | save a grid with all 16 preprocessing steps of each image (slower) |
-| `--no-show` | off | no windows |
-| `--threads N` | 1 | parallel workers for `--folder`; needs `--no-show` and no `--select-roi` |
-| `--debug` | off | show the preprocessing steps in a window |
 | `--camera-index N` | 0 | webcam number |
-| `--libcamera-width W` / `--libcamera-height H` | 1920 / 1080 | libcamera frame size [px] |
-| `--process-every N` | 2 | live: decode one frame every N |
-| `--quick-candidates N` | 4 | live: number of steps tried on a normal decode |
-| `--full-search-every N` | 10 | live: every N decodes, try all steps |
+| `--roi X Y W H` | whole frame | ROI in pixels (top-left corner, width, height) |
+| `--select-roi` | | draw the ROI with the mouse on the first frame (ENTER/SPACE to confirm) |
+| `--process-every N` | 2 | decode one frame every N |
+| `--quick-candidates N` | 4 | number of steps tried on a normal decode |
+| `--full-search-every N` | 10 | every N decodes, try all steps |
+| `--debug` | off | also show the preprocessing image in a second window |
+| `--help`, `-h` | | show the options |
 
-Keys in the windows: `SPACE`/`ENTER` next image, `r` reselect ROI (with `--select-roi`), `q`/`ESC` quit.
+`--webcam` is accepted and ignored, so command lines written for the `main` branch still work.
 
-## 7. Output
+Press `q` in the video window to quit.
 
-Console, one line per image:
-```
-[1/18] a.png ... OK | type=EAN13 | data=5901234123457 | quality=299 | pipeline=gray
-[6/18] b.png ... KO | Nessun barcode letto
-[7/18] c.jpg ... SKIP (immagine non leggibile)
-```
-The result strings are kept identical to the earlier Python version, so existing scripts that parse them still work.
-
-CSV (`--output`), one row per image:
-
-| Column | Content |
-|--------|---------|
-| `filename` | image file name |
-| `status` | `OK`, `KO` (nothing read) or `SKIP` (file not readable) |
-| `type`, `data`, `quality` | symbology, decoded text, ZBar quality score |
-| `pipeline` | preprocessing step that worked |
-| `roi_x`, `roi_y`, `roi_w`, `roi_h` | ROI actually used [px] |
-
-## 8. Troubleshooting
+## 7. Troubleshooting
 
 | Problem | What to check |
 |---------|---------------|
 | `ZBar not found` while running CMake | Linux: `libzbar-dev` and `pkg-config` installed. Windows: `mchehab-zbar` installed and `CMAKE_TOOLCHAIN_FILE` given. |
 | `cannot open webcam` | try `--camera-index 1`, `2`, …; on Linux list cameras with `ls /dev/video*` |
-| `libcamera support not built` | rebuild with `-DUSE_LIBCAMERA=ON` |
-| `KO` on images that contain a code | make the ROI tighter around the code; use `--debug` or `--save-debug` to see the steps |
-| Live mode too slow | increase `--process-every`, decrease `--quick-candidates` |
+| Code visible but not read | make the ROI tighter around the code; use `--debug` to see the processed image; decrease `--full-search-every` |
+| Video too slow | increase `--process-every`, decrease `--quick-candidates` |

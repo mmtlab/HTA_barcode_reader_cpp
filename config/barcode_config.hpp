@@ -7,9 +7,6 @@
  */
 #pragma once
 
-#include <array>
-#include <string_view>
-
 namespace config {
 
 // ---------------------------------------------------------------------------
@@ -34,17 +31,5 @@ constexpr int kMaxPixelsForUpscale3x = 2 * 1024 * 1024;  // ROI <= 2 Mpx -> try 
 // Used on Linux/macOS, where the screen size is not queried.
 constexpr int kFallbackScreenWidth  = 1920;  // [px]
 constexpr int kFallbackScreenHeight = 1080;  // [px]
-
-// Debug grid: one tile per preprocessing candidate.
-constexpr int kDebugTileWidth   = 320;  // [px]
-constexpr int kDebugTileHeight  = 180;  // [px]
-constexpr int kDebugGridColumns = 4;
-
-// ---------------------------------------------------------------------------
-// Batch mode
-// ---------------------------------------------------------------------------
-// File extensions read by --folder (compared in lower case).
-constexpr std::array<std::string_view, 7> kImageExtensions = {
-    ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"};
 
 }  // namespace config

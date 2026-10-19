@@ -30,37 +30,22 @@ struct DecodeResult {
     std::vector<std::pair<std::string, cv::Mat>> attempted;  // (name, image) per step, debug only
 };
 
-// ROI meaning "the whole image": it is clamped to the real image size before use.
+// ROI meaning "the whole frame": it is clamped to the real frame size before use.
 inline const cv::Rect kWholeImageRoi(0, 0, INT_MAX, INT_MAX);
 
 // Command-line options. The values below are the defaults.
 struct Args {
-    // Mode (exactly one is set)
-    std::string image_path;       // --image
-    std::string folder_path;      // --folder
-    bool webcam         = false;  // --webcam
-    bool libcamera      = false;  // --libcamera
+    int camera_index = 0;           // --camera-index
 
     // Region of interest
     cv::Rect roi = kWholeImageRoi;  // --roi X Y W H
     bool roi_set    = false;        // true if --roi was given
     bool select_roi = false;        // --select-roi
 
-    // Output
-    std::string output_csv;        // --output
-    std::string save_overlay_dir;  // --save-overlay
-    std::string save_debug_dir;    // --save-debug
-    bool no_show = false;          // --no-show
-    bool debug   = false;          // --debug
-    int  num_threads = 1;          // --threads
-
-    // Cameras
-    int camera_index     = 0;     // --camera-index (webcam)
-    int libcamera_width  = 1920;  // --libcamera-width  [px]
-    int libcamera_height = 1080;  // --libcamera-height [px]
+    bool debug = false;             // --debug: show the preprocessing image
 
     // Real-time tuning
-    int process_every     = 2;    // --process-every: decode one frame every N
-    int quick_candidates  = 4;    // --quick-candidates: steps tried on a quick decode
-    int full_search_every = 10;   // --full-search-every: every N decodes try all steps
+    int process_every     = 2;      // --process-every: decode one frame every N
+    int quick_candidates  = 4;      // --quick-candidates: steps tried on a quick decode
+    int full_search_every = 10;     // --full-search-every: every N decodes try all steps
 };

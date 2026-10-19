@@ -25,8 +25,7 @@
 #  include <windows.h>
 #endif
 
-static const cv::Scalar kGreen(0, 255, 0), kRed(0, 0, 255), kOrange(0, 200, 255),
-                        kGrey(100, 100, 100), kWhite(255, 255, 255), kBlack(0, 0, 0);
+static const cv::Scalar kGreen(0, 255, 0), kRed(0, 0, 255), kOrange(0, 200, 255);
 
 // Screen size in pixels: queried on Windows, fixed fallback elsewhere.
 static cv::Size screen_size() {
@@ -59,13 +58,6 @@ cv::Rect clamp_roi(const cv::Rect& roi, const cv::Size& image_size) {
     return {x, y, w, h};
 }
 
-cv::Mat to_bgr(const cv::Mat& image) {
-    if (image.channels() != 1) return image;
-    cv::Mat bgr;
-    cv::cvtColor(image, bgr, cv::COLOR_GRAY2BGR);
-    return bgr;
-}
-
 cv::Mat draw_roi_and_text(const cv::Mat& image_bgr, const cv::Rect& roi,
                           const std::string& text, bool ok) {
     cv::Mat out = image_bgr.clone();
@@ -73,44 +65,6 @@ cv::Mat draw_roi_and_text(const cv::Mat& image_bgr, const cv::Rect& roi,
     cv::putText(out, text, {roi.x, std::max(40, roi.y - 10)}, cv::FONT_HERSHEY_SIMPLEX, 1.5,
                 ok ? kGreen : kRed, 3, cv::LINE_AA);
     return out;
-}
-
-cv::Mat draw_decode_result(const cv::Mat& image_bgr, const cv::Rect& roi,
-                           const std::vector<DecodedBarcode>& decoded) {
-    if (decoded.empty()) return draw_roi_and_text(image_bgr, roi, kNoBarcodeText, false);
-    return draw_roi_and_text(image_bgr, roi, decoded[0].data, true);
-}
-
-cv::Mat make_debug_grid(const std::vector<std::pair<std::string, cv::Mat>>& steps,
-                        const std::string& winner_name) {
-    if (steps.empty()) return {};
-
-    const int tile_w = config::kDebugTileWidth, tile_h = config::kDebugTileHeight;
-    const int cols = config::kDebugGridColumns;
-    const int rows = (static_cast<int>(steps.size()) + cols - 1) / cols;
-    const int header_h = 40;
-
-    cv::Mat grid = cv::Mat::zeros(header_h + rows * tile_h, cols * tile_w, CV_8UC3);
-    const std::string winner_label = winner_name.empty() ? "nessuna" : winner_name;
-    cv::putText(grid, "Sequenza preprocessing (WIN=" + winner_label + ")", {10, 26},
-                cv::FONT_HERSHEY_SIMPLEX, 0.7, kGreen, 2, cv::LINE_AA);
-
-    for (int i = 0; i < static_cast<int>(steps.size()); ++i) {
-        const auto& [name, image] = steps[i];
-        const bool is_winner = (name == winner_name);
-        const cv::Rect cell((i % cols) * tile_w, header_h + (i / cols) * tile_h, tile_w, tile_h);
-
-        // Tile: resized image + frame + "NN | name" label on a black strip.
-        cv::Mat tile;
-        cv::resize(to_bgr(image), tile, cell.size(), 0, 0, cv::INTER_AREA);
-        cv::rectangle(tile, {0, 0, tile_w, tile_h}, is_winner ? kGreen : kGrey, is_winner ? 3 : 1);
-        cv::rectangle(tile, {0, tile_h - 26, tile_w, 26}, kBlack, cv::FILLED);
-        const std::string label = (i < 10 ? "0" : "") + std::to_string(i) + " | " + name;
-        cv::putText(tile, label, {8, tile_h - 8}, cv::FONT_HERSHEY_SIMPLEX, 0.5,
-                    is_winner ? kGreen : kWhite, 1, cv::LINE_AA);
-        tile.copyTo(grid(cell));
-    }
-    return grid;
 }
 
 void show_fitted(const std::string& window_name, const cv::Mat& image, int margin_px) {

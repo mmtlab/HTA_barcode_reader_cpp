@@ -72,7 +72,7 @@ std::vector<DecodedBarcode> decode_barcodes_with_zbar(const cv::Mat& image) {
 
 DecodeResult decode_with_preprocessing(const cv::Mat& roi_bgr,
                                        int max_decode_attempts,
-                                       DebugImages debug_images) {
+                                       bool keep_attempted) {
     // One CLAHE object per thread, created once (creating it is the slow part).
     static thread_local cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(
         config::kClaheClipLimit, cv::Size(config::kClaheTileSize, config::kClaheTileSize));
@@ -83,7 +83,7 @@ DecodeResult decode_with_preprocessing(const cv::Mat& roi_bgr,
 
     // Tries one candidate image. Returns true when the pipeline can stop.
     auto try_candidate = [&](const std::string& name, const cv::Mat& candidate) {
-        if (debug_images != DebugImages::None) result.attempted.emplace_back(name, candidate);
+        if (keep_attempted) result.attempted.emplace_back(name, candidate);
 
         if (result.decoded.empty() && attempts < attempt_limit) {
             ++attempts;
@@ -93,8 +93,7 @@ DecodeResult decode_with_preprocessing(const cv::Mat& roi_bgr,
                 result.winning_image = candidate;
             }
         }
-        const bool search_over = !result.decoded.empty() || attempts >= attempt_limit;
-        return search_over && debug_images != DebugImages::All;
+        return !result.decoded.empty() || attempts >= attempt_limit;
     };
 
     // 1. Grayscale

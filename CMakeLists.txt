@@ -4,8 +4,7 @@
 #   Windows: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
 #            cmake --build build --config Release
 #
-# Options: -DUSE_LIBCAMERA=ON (Raspberry Pi / Arducam),
-#          -DNATIVE_CPU=OFF (portable binary, without -march=native).
+# Option: -DNATIVE_CPU=OFF (portable binary, without -march=native).
 # See README.md for details.
 
 cmake_minimum_required(VERSION 3.16)
@@ -20,14 +19,12 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-option(USE_LIBCAMERA "libcamera support (Linux, needs OpenCV with GStreamer)" OFF)
-option(NATIVE_CPU    "Optimise for this computer's CPU (GCC/Clang)"         ON)
+option(NATIVE_CPU "Optimise for this computer's CPU (GCC/Clang)"         ON)
 
 # ---------------------------------------------------------------------------
 # Required libraries
 # ---------------------------------------------------------------------------
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs highgui videoio)
-find_package(Threads REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui videoio)
 
 # ZBar has no CMake package: use pkg-config (Linux), otherwise search the
 # library and header directly (Windows/vcpkg: the vcpkg toolchain adds its folders).
@@ -60,11 +57,10 @@ add_executable(barcode_reader
     src/cli_args.cpp
     src/decoder.cpp
     src/display.cpp
-    src/image_modes.cpp
-    src/camera_modes.cpp
+    src/webcam_mode.cpp
 )
 target_include_directories(barcode_reader PRIVATE include config ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(barcode_reader PRIVATE ${OpenCV_LIBS} ${ZBAR_TARGET} Threads::Threads)
+target_link_libraries(barcode_reader PRIVATE ${OpenCV_LIBS} ${ZBAR_TARGET})
 
 if(MSVC)
     target_compile_options(barcode_reader PRIVATE /utf-8)  # source files are UTF-8
@@ -80,12 +76,5 @@ if(LTO_SUPPORTED)
     set_property(TARGET barcode_reader PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 endif()
 
-# ---------------------------------------------------------------------------
-# Optional camera
-# ---------------------------------------------------------------------------
-if(USE_LIBCAMERA)
-    target_compile_definitions(barcode_reader PRIVATE HAS_LIBCAMERA)
-endif()
-
 message(STATUS "barcode_reader: OpenCV ${OpenCV_VERSION}, ZBar ${ZBAR_TARGET}, "
-               "libcamera ${USE_LIBCAMERA}, LTO ${LTO_SUPPORTED}")
+               "LTO ${LTO_SUPPORTED}")

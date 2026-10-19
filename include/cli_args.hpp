@@ -11,5 +11,4 @@
 void print_help();
 
 // Reads and checks the options. On an error it prints a message and exits with code 1.
-// Creates the --save-overlay and --save-debug folders if they do not exist.
 Args parse_args(int argc, char* argv[]);

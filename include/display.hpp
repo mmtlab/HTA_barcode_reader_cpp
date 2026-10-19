@@ -2,7 +2,7 @@
  * display.hpp
  *
  * Everything that draws or shows images: ROI handling, result overlay,
- * debug grid, windows fitted to the screen and mouse ROI selection.
+ * windows fitted to the screen and mouse ROI selection.
  */
 #pragma once
 
@@ -14,20 +14,9 @@ inline const std::string kNoBarcodeText = "Nessun barcode letto";
 // Restricts a ROI to the image area; the result is at least 1 x 1 px.
 cv::Rect clamp_roi(const cv::Rect& roi, const cv::Size& image_size);
 
-// Returns a copy of a 1-channel image as 3-channel BGR (3-channel images are returned as is).
-cv::Mat to_bgr(const cv::Mat& image);
-
 // Draws the ROI rectangle and a text above it (green if ok, red otherwise).
 cv::Mat draw_roi_and_text(const cv::Mat& image_bgr, const cv::Rect& roi,
                           const std::string& text, bool ok);
-
-// Draws the ROI and the first decoded value, or kNoBarcodeText if nothing was read.
-cv::Mat draw_decode_result(const cv::Mat& image_bgr, const cv::Rect& roi,
-                           const std::vector<DecodedBarcode>& decoded);
-
-// Builds a labelled grid with one tile per preprocessing step; the winner has a green frame.
-cv::Mat make_debug_grid(const std::vector<std::pair<std::string, cv::Mat>>& steps,
-                        const std::string& winner_name);
 
 // Shows an image in a resizable window, shrunk if it is larger than the screen.
 void show_fitted(const std::string& window_name, const cv::Mat& image, int margin_px = 120);
