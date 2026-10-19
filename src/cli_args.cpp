@@ -1,211 +1,147 @@
 /**
- * @file cli_args.cpp
- * @brief Implementazione del parser degli argomenti CLI.
- *        Implementation of the CLI argument parser.
+ * cli_args.cpp
+ *
+ * print_help(): option list (defaults are read from Args, not repeated here).
+ * parse_args(): reads argv into an Args struct, then validates the combination.
  */
-
 #include "cli_args.hpp"
 
 #include <filesystem>
 #include <iostream>
-#include <stdexcept>
 #include <string>
 
 namespace fs = std::filesystem;
 
-// ============================================================================
-//  print_help
-// ============================================================================
-
 void print_help() {
+    const Args defaults;
     std::cout <<
-R"(Lettura barcode da immagine o camera (C++)
-Barcode reading from image or camera (C++)
-
-Modalita / Modes (sceglierne una / pick one):
-  --image  <path>          Immagine singola / Single image
-  --folder <path>          Batch: tutte le immagini in una cartella / All images in a folder
-  --webcam                 Lettura real-time da webcam / Real-time from webcam
-  --basler                 Lettura real-time da camera Basler (Pylon) / Real-time from Basler camera
-  --libcamera              Lettura real-time da Arducam/libcamera (RPi) / Real-time from libcamera
-
-Opzioni ROI / ROI options:
-  --roi X Y W H            ROI fissa in pixel / Fixed ROI in pixels
-  --select-roi             Selezione ROI col mouse / Mouse ROI selection
-                           In --folder: selezione sulla 1a immagine, poi riusata.
-                           In --folder: selection on 1st image, then reused.
-                           Premi 'r' per riselezionare / Press 'r' to reselect.
-
-Opzioni batch / Batch options (--folder):
-  --output  <file.csv>     Salva i risultati in CSV / Save results to CSV
-  --no-show                Niente GUI (headless) / No GUI (headless)
-  --threads N              Worker paralleli [default: 1, richiede --no-show]
-                           Parallel workers [default: 1, requires --no-show]
-
-Opzioni camera / Camera options:
-  --camera-index  N        Indice webcam [default: 0] / Webcam index
-  --device-index  N        Indice Basler [default: 0] / Basler device index
-  --basler-serial SN       Seriale Basler (priorita su --device-index)
-                           Basler serial (takes precedence over --device-index)
-  --libcamera-width  W     Larghezza frame libcamera [default: 1920]
-  --libcamera-height H     Altezza frame libcamera [default: 1080]
-
-Opzioni real-time / Real-time options:
-  --process-every    N     Decode ogni N frame [default: 2] / Decode every N frames
-  --quick-candidates N     Step preprocessing rapidi [default: 4] / Quick preprocessing steps
-  --full-search-every N    Ogni N decode usa la ricerca completa [default: 10]
-                           Every N decodes runs the full search
-
-Altro / Misc:
-  --debug                  Mostra immagine preprocessata / mosaico debug
-                           Shows preprocessed image / debug mosaic
-  --help, -h               Mostra questo messaggio / Show this message
-
-Navigazione batch / Batch navigation:
-  SPAZIO / ENTER  = immagine successiva / next image
-  q / ESC         = interrompi / quit
-  r               = riseleziona ROI (solo --select-roi) / reselect ROI
-)";
+        "Barcode reader: reads barcodes from images, folders or cameras.\n"
+        "\n"
+        "Mode (choose one):\n"
+        "  --image <file>            single image (needs --roi or --select-roi)\n"
+        "  --folder <dir>            all images in a folder (batch)\n"
+        "  --webcam                  live from a webcam\n"
+        "  --libcamera               live from libcamera / Arducam (build with -DUSE_LIBCAMERA=ON)\n"
+        "\n"
+        "Region of interest (default: whole image):\n"
+        "  --roi X Y W H             fixed ROI in pixels\n"
+        "  --select-roi              draw the ROI with the mouse (batch: on the first image)\n"
+        "\n"
+        "Output (--image and --folder):\n"
+        "  --output <file.csv>       save results to CSV (--folder only)\n"
+        "  --save-overlay <dir>      save each image with ROI and result drawn on it\n"
+        "  --save-debug <dir>        save a grid with all preprocessing steps of each image\n"
+        "  --no-show                 no windows (headless)\n"
+        "  --threads N               parallel workers for --folder, needs --no-show [default: "
+              << defaults.num_threads << "]\n"
+        "  --debug                   also show the preprocessing steps in a window\n"
+        "\n"
+        "Cameras:\n"
+        "  --camera-index N          webcam index [default: " << defaults.camera_index << "]\n"
+        "  --libcamera-width W       libcamera frame width [default: " << defaults.libcamera_width << "]\n"
+        "  --libcamera-height H      libcamera frame height [default: " << defaults.libcamera_height << "]\n"
+        "\n"
+        "Live tuning:\n"
+        "  --process-every N         decode one frame every N [default: " << defaults.process_every << "]\n"
+        "  --quick-candidates N      steps tried on a quick decode [default: " << defaults.quick_candidates << "]\n"
+        "  --full-search-every N     every N decodes try all steps [default: " << defaults.full_search_every << "]\n"
+        "\n"
+        "  --help, -h                show this message\n"
+        "\n"
+        "Keys in windows: SPACE/ENTER = next image, r = reselect ROI (with --select-roi),\n"
+        "                 q/ESC = quit.\n";
 }
 
-// ============================================================================
-//  parse_args
-// ============================================================================
+// Prints an error message and stops the program.
+[[noreturn]] static void exit_with_error(const std::string& message) {
+    std::cerr << "Error: " << message << "\nUse --help to see the options.\n";
+    std::exit(1);
+}
+
+// Creates an output folder if needed; stops the program if that is not possible.
+static void create_output_folder(const std::string& folder, const std::string& option) {
+    if (folder.empty()) return;
+    std::error_code error;
+    fs::create_directories(folder, error);
+    if (error || !fs::is_directory(folder))
+        exit_with_error(option + ": cannot create folder '" + folder + "'");
+}
 
 Args parse_args(int argc, char* argv[]) {
     Args a;
-    bool has_mode = false;
 
     for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
+        const std::string option = argv[i];
 
-        // --- Aiuto / Help ---
-        if (arg == "--help" || arg == "-h") {
-            print_help();
-            std::exit(0);
-        }
+        // Read the value that follows the current option.
+        auto text_value = [&]() -> std::string {
+            if (i + 1 >= argc) exit_with_error("missing value after " + option);
+            return argv[++i];
+        };
+        auto int_value = [&]() -> int {
+            const std::string text = text_value();
+            try {
+                std::size_t used = 0;
+                const int value = std::stoi(text, &used);
+                if (used == text.size()) return value;
+            } catch (const std::exception&) {}
+            exit_with_error(option + ": '" + text + "' is not an integer");
+        };
 
-        // --- Modalità operative / Operating modes ---
-        else if (arg == "--image" && i + 1 < argc) {
-            a.image_path = argv[++i]; has_mode = true;
-        } else if (arg == "--folder" && i + 1 < argc) {
-            a.folder_path = argv[++i]; has_mode = true;
-        } else if (arg == "--webcam") {
-            a.webcam = true; has_mode = true;
-        } else if (arg == "--basler") {
-            a.basler = true; has_mode = true;
-        } else if (arg == "--libcamera") {
-            a.libcamera_mode = true; has_mode = true;
-        }
-
-        // --- Output batch / Batch output ---
-        else if (arg == "--output" && i + 1 < argc) {
-            a.output_csv = argv[++i];
-        } else if (arg == "--no-show") {
-            a.no_show = true;
-        } else if (arg == "--threads" && i + 1 < argc) {
-            a.num_threads = std::stoi(argv[++i]);
-        }
-
-        // --- Parametri camera / Camera parameters ---
-        else if (arg == "--camera-index" && i + 1 < argc) {
-            a.camera_index = std::stoi(argv[++i]);
-        } else if (arg == "--device-index" && i + 1 < argc) {
-            a.device_index = std::stoi(argv[++i]);
-        } else if (arg == "--basler-serial" && i + 1 < argc) {
-            a.basler_serial = argv[++i];
-        } else if (arg == "--libcamera-width" && i + 1 < argc) {
-            a.libcamera_width = std::stoi(argv[++i]);
-        } else if (arg == "--libcamera-height" && i + 1 < argc) {
-            a.libcamera_height = std::stoi(argv[++i]);
-        }
-
-        // --- ROI ---
-        else if (arg == "--roi" && i + 4 < argc) {
-            a.roi.x   = std::stoi(argv[++i]);
-            a.roi.y   = std::stoi(argv[++i]);
-            a.roi.w   = std::stoi(argv[++i]);
-            a.roi.h   = std::stoi(argv[++i]);
+        if      (option == "--help" || option == "-h") { print_help(); std::exit(0); }
+        else if (option == "--image")             a.image_path = text_value();
+        else if (option == "--folder")            a.folder_path = text_value();
+        else if (option == "--webcam")            a.webcam = true;
+        else if (option == "--libcamera")         a.libcamera = true;
+        else if (option == "--select-roi")        a.select_roi = true;
+        else if (option == "--output")            a.output_csv = text_value();
+        else if (option == "--save-overlay")      a.save_overlay_dir = text_value();
+        else if (option == "--save-debug")        a.save_debug_dir = text_value();
+        else if (option == "--no-show")           a.no_show = true;
+        else if (option == "--debug")             a.debug = true;
+        else if (option == "--threads")           a.num_threads = int_value();
+        else if (option == "--camera-index")      a.camera_index = int_value();
+        else if (option == "--libcamera-width")   a.libcamera_width = int_value();
+        else if (option == "--libcamera-height")  a.libcamera_height = int_value();
+        else if (option == "--process-every")     a.process_every = int_value();
+        else if (option == "--quick-candidates")  a.quick_candidates = int_value();
+        else if (option == "--full-search-every") a.full_search_every = int_value();
+        else if (option == "--roi") {
+            a.roi.x = int_value();
+            a.roi.y = int_value();
+            a.roi.width = int_value();
+            a.roi.height = int_value();
             a.roi_set = true;
-        } else if (arg == "--select-roi") {
-            a.select_roi = true;
         }
-
-        // --- Debug & tuning real-time ---
-        else if (arg == "--debug") {
-            a.debug = true;
-        } else if (arg == "--process-every" && i + 1 < argc) {
-            a.process_every = std::stoi(argv[++i]);
-        } else if (arg == "--quick-candidates" && i + 1 < argc) {
-            a.quick_candidates = std::stoi(argv[++i]);
-        } else if (arg == "--full-search-every" && i + 1 < argc) {
-            a.full_search_every = std::stoi(argv[++i]);
-        }
-
-        // --- Argomento sconosciuto / Unknown argument ---
-        else {
-            std::cerr << "Argomento sconosciuto / Unknown argument: " << arg << "\n";
-            print_help();
-            std::exit(1);
-        }
+        else exit_with_error("unknown option " + option);
     }
 
-    // =========================================================================
-    //  Validazione / Validation
-    // =========================================================================
+    // ---- Check the combination of options ----
+    const int modes = !a.image_path.empty() + !a.folder_path.empty() + a.webcam + a.libcamera;
+    if (modes != 1)
+        exit_with_error("choose exactly one of --image, --folder, --webcam, --libcamera");
 
-    if (!has_mode) {
-        std::cerr << "Errore: specificare --image, --folder, --webcam, --basler o --libcamera\n"
-                     "Error: specify --image, --folder, --webcam, --basler or --libcamera\n";
-        print_help();
-        std::exit(1);
-    }
+    if (!a.image_path.empty() && !a.roi_set && !a.select_roi)
+        exit_with_error("--image needs --roi X Y W H or --select-roi");
 
-    if (!a.image_path.empty() && !a.select_roi && !a.roi_set) {
-        std::cerr << "Errore: con --image specificare --roi X Y W H oppure --select-roi\n"
-                     "Error: with --image specify --roi X Y W H or --select-roi\n";
-        std::exit(1);
-    }
+    if (!a.folder_path.empty() && !fs::is_directory(a.folder_path))
+        exit_with_error("--folder: '" + a.folder_path + "' is not a folder");
 
-    if (!a.folder_path.empty() && !fs::is_directory(a.folder_path)) {
-        std::cerr << "Errore: percorso --folder non valido o non e' una cartella: "
-                  << a.folder_path << "\n"
-                     "Error: --folder path is invalid or not a directory: "
-                  << a.folder_path << "\n";
-        std::exit(1);
-    }
+    if (a.roi_set && (a.roi.width < 1 || a.roi.height < 1))
+        exit_with_error("--roi: width and height must be >= 1");
 
-    if (!a.folder_path.empty() && !a.select_roi && !a.roi_set) {
-        std::cerr << "Avviso / Warning: nessuna ROI specificata in --folder. "
-                     "Verra' usata l'intera immagine.\n"
-                     "No ROI specified for --folder. The entire image will be used.\n"
-                     "Usa --roi X Y W H o --select-roi / Use --roi X Y W H or --select-roi\n";
+    if (a.num_threads < 1 || a.process_every < 1 || a.quick_candidates < 1 || a.full_search_every < 1)
+        exit_with_error("--threads, --process-every, --quick-candidates and --full-search-every must be >= 1");
+
+    if (!a.folder_path.empty() && !a.roi_set && !a.select_roi)
+        std::cerr << "Warning: no ROI given, the whole image is used.\n";
+
+    if (a.num_threads > 1 && (!a.no_show || a.select_roi)) {
+        std::cerr << "Warning: --threads needs --no-show and no --select-roi; using 1 thread.\n";
+        a.num_threads = 1;
     }
 
-    if (a.num_threads < 1) {
-        std::cerr << "Errore: --threads deve essere >= 1 / Error: --threads must be >= 1\n";
-        std::exit(1);
-    }
-
-    if (a.num_threads > 1 && !a.no_show) {
-        std::cerr << "Avviso / Warning: --threads > 1 richiede --no-show. "
-                     "Il parallelismo verra' disabilitato.\n"
-                     "--threads > 1 requires --no-show. Parallelism will be disabled.\n";
-        a.num_threads = 1;  // fallback sicuro / safe fallback
-    }
-
-    if (a.process_every < 1) {
-        std::cerr << "Errore: --process-every deve essere >= 1 / Error: --process-every must be >= 1\n";
-        std::exit(1);
-    }
-    if (a.quick_candidates < 1) {
-        std::cerr << "Errore: --quick-candidates deve essere >= 1 / Error: --quick-candidates must be >= 1\n";
-        std::exit(1);
-    }
-    if (a.full_search_every < 1) {
-        std::cerr << "Errore: --full-search-every deve essere >= 1 / Error: --full-search-every must be >= 1\n";
-        std::exit(1);
-    }
-
+    create_output_folder(a.save_overlay_dir, "--save-overlay");
+    create_output_folder(a.save_debug_dir, "--save-debug");
     return a;
 }
